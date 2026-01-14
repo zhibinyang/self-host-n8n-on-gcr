@@ -1,5 +1,20 @@
 # Self-Hosting n8n on Google Cloud Run: Complete Guide #
 
+> **📦 Fork Notice**: This project is forked from [datawranglerai/self-host-n8n-on-gcr](https://github.com/datawranglerai/self-host-n8n-on-gcr) with additional enhancements for custom node management.
+
+## What's New in This Fork ##
+
+This enhanced version includes **Cloud Storage integration for custom n8n nodes**:
+
+- **GCS Bucket Auto-provisioning**: Automatically creates a Cloud Storage bucket for storing custom nodes
+- **Seamless Volume Mounting**: Custom nodes are mounted directly to `/home/node/.n8n/custom` in your n8n instance
+- **Version Control**: Built-in versioning for your custom node packages
+- **Easy Management**: Upload custom nodes via GCS and they're immediately available in your n8n instance
+
+This enhancement allows you to extend n8n with custom nodes while maintaining the serverless benefits of Cloud Run deployment.
+
+---
+
 So you want to run n8n without the monthly subscription fees, keep your data under your own control, and avoid the headache of server maintenance? Google Cloud Run offers exactly that sweet spot - serverless deployment with per-use pricing. Let's build this thing properly.
 
 This guide walks you through deploying n8n (that powerful workflow automation platform) on Google Cloud Run with PostgreSQL persistence. You'll end up with a fully functional system that scales automatically, connects to Google services via OAuth, and won't drain your wallet when idle.

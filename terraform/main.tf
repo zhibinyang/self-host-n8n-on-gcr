@@ -17,6 +17,19 @@ data "google_project" "project" {
   project_id = var.gcp_project_id
 }
 
+# API Preparation
+resource "google_project_service" "apis" {
+  for_each = toset([
+    "run.googleapis.com",
+    "artifactregistry.googleapis.com",
+    "sqladmin.googleapis.com",
+    "secretmanager.googleapis.com",
+    "iam.googleapis.com"
+  ])
+  service                    = each.key
+  disable_on_destroy         = false
+}
+
 # --- Services --- #
 resource "google_project_service" "artifactregistry" {
   service            = "artifactregistry.googleapis.com"
@@ -66,10 +79,10 @@ resource "google_sql_database_instance" "n8n_db_instance" {
     disk_type         = "PD_HDD"
     disk_size         = var.db_storage_size
     backup_configuration {
-      enabled = false
+      enabled = true
     }
   }
-  deletion_protection = false
+  deletion_protection = true
   depends_on          = [google_project_service.sqladmin]
 }
 
@@ -160,6 +173,25 @@ resource "google_project_iam_member" "sql_client" {
   member  = "serviceAccount:${google_service_account.n8n_sa.email}"
 }
 
+# --- Cloud Storage for Custom Node --- #
+resource "google_storage_bucket" "n8n_custom_nodes" {
+  name          = "${var.gcp_project_id}-n8n-custom-nodes"
+  location      = var.gcp_region
+  force_destroy = false
+
+  versioning {
+    enabled = true
+  }
+
+  uniform_bucket_level_access = true
+}
+
+resource "google_storage_bucket_iam_member" "n8n_bucket_viewer" {
+  bucket = google_storage_bucket.n8n_custom_nodes.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.n8n_sa.email}"
+}
+
 # --- Cloud Run Service --- #
 locals {
   # Use official image or custom image based on variable
@@ -192,6 +224,13 @@ resource "google_cloud_run_v2_service" "n8n" {
         instances = [google_sql_database_instance.n8n_db_instance.connection_name]
       }
     }
+    volumes {
+      name = "custom-nodes-vol"
+      gcs {
+        bucket    = google_storage_bucket.n8n_custom_nodes.name
+        read_only = false
+      }
+    }
     containers {
       image = local.n8n_image
       
@@ -203,6 +242,11 @@ resource "google_cloud_run_v2_service" "n8n" {
         name       = "cloudsql"
         mount_path = "/cloudsql"
       }
+
+      volume_mounts {
+        name       = "custom-nodes-vol"
+        mount_path = "/home/node/.n8n/custom"
+      }
       ports {
         container_port = var.cloud_run_container_port
       }
@@ -212,7 +256,7 @@ resource "google_cloud_run_v2_service" "n8n" {
           memory = var.cloud_run_memory
         }
         startup_cpu_boost = true
-        cpu_idle          = false  # This is --no-cpu-throttling
+        cpu_idle          = false  # This is --no-cpu-throttling if set to false
       }
       
       # Only set N8N_PATH for custom image
@@ -306,6 +350,10 @@ resource "google_cloud_run_v2_service" "n8n" {
         name  = "N8N_PROXY_HOPS"
         value = "1"
       }
+      env {
+        name  = "N8N_CUSTOM_EXTENSIONS"
+        value = "/home/node/.n8n/custom"
+      }
 
       startup_probe {
         initial_delay_seconds = 30
@@ -327,6 +375,7 @@ resource "google_cloud_run_v2_service" "n8n" {
   depends_on = [
     google_project_service.run,
     google_project_iam_member.sql_client,
+    google_storage_bucket_iam_member.n8n_bucket_viewer,
     google_secret_manager_secret_iam_member.db_password_secret_accessor,
     google_secret_manager_secret_iam_member.encryption_key_secret_accessor
   ]
